@@ -2,7 +2,6 @@
 
 MoonBazaar Developer API v1 的非官方 Android 客户端。App 自身**不持有** API Key 与用户令牌，所有请求都发往自建的 **Cloudflare Worker 中转服务**，由 Worker 注入 `X-API-Key`、注入用户 `Authorization: Bearer`，并通过 **Session Token** 把每个请求绑定到真实登录用户。
 
-> 上层依赖：`README.md`（Worker 中转服务文档）、`QQ3138143136-moonbazaar-api (1).md`（MoonBazaar Developer API v1 官方文档）。
 
 ---
 
