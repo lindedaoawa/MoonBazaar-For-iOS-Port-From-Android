@@ -35,6 +35,22 @@ android {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Android Studio Gradle Sync 兼容用占位任务
+//
+// AGP 9 使用「内置 Kotlin」编译 Kotlin：不能再应用 org.jetbrains.kotlin.android
+// （会与内置注册的 kotlin 扩展冲突：Cannot add extension with name 'kotlin'），
+// 而内置 Kotlin 只在根项目注册 prepareKotlinBuildScriptModel，
+// 于是 Android Studio 在 :app 上请求该任务时报：
+//   Task 'prepareKotlinBuildScriptModel' not found in project ':app'
+//
+// 这里补一个空实现，让 IDE 的 Sync 能正常完成。
+// ---------------------------------------------------------------------------
+tasks.register("prepareKotlinBuildScriptModel") {
+    group = "build setup"
+    description = "Android Studio Gradle Sync 兼容占位任务（AGP 9 内置 Kotlin 不注册该任务）"
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
