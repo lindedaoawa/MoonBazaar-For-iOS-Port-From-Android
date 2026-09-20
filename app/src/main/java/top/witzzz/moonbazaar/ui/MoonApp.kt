@@ -213,7 +213,7 @@ fun MoonApp(
             val m = Modifier.padding(inner)
             when (tabs[tabIndex]) {
                 Tab.Home -> HomeScreen(vm, onStartLogin, { scope.launch { drawerState.open() } }, m)
-                Tab.Surveys -> if (ban.banned) BannedScreen(ban.reason, m, "问卷") else SurveysScreen(vm, openUrl, m)
+                Tab.Surveys -> if (ban.banned) BannedScreen(ban.reason, m, "问卷") else SurveysScreen(vm, m)
                 Tab.Tx -> TransactionsScreen(vm, m)
                 Tab.Redeem -> if (ban.banned) BannedScreen(ban.reason, m, "兑换") else RedeemScreen(vm, openUrl, m)
                 Tab.Referral -> if (ban.banned) BannedScreen(ban.reason, m, "邀请") else ReferralScreen(vm, openUrl, m)
@@ -365,66 +365,79 @@ private fun BanBanner2(
 
 // =============================== 主要问卷
 @Composable
-private fun SurveysScreen(vm: MainViewModel, openUrl: (String) -> Unit, modifier: Modifier) {
+private fun SurveysScreen(vm: MainViewModel, modifier: Modifier) {
     val s by vm.surveys.collectAsState()
+    // 进行中的问卷：非空时在该页内以内嵌 WebView 打开
+    var activeSurvey by rememberSaveable { mutableStateOf<String?>(null) }
+    val running = activeSurvey
 
-    Column(modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("主要问卷", style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold)
-                Text(s.message, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline)
+    if (running != null) {
+        SurveyWebScreen(
+            startUrl = running,
+            onClose = {
+                activeSurvey = null
+                vm.loadSurveys()
             }
-            OutlinedButton(onClick = { vm.loadSurveys() },
-                modifier = Modifier.height(34.dp)) { Text("刷新") }
-        }
-
-        // 质量分
-        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        )
+    } else {
+        Column(modifier.fillMaxSize()) {
             Row(
-                Modifier.fillMaxWidth().padding(14.dp),
+                Modifier.fillMaxWidth().padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("质量分", style = MaterialTheme.typography.labelMedium,
+                    Text("主要问卷", style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold)
+                    Text(s.message, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline)
-                    Text("${s.qualityScore}",
-                        fontSize = 30.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary)
                 }
-                if (s.countryCode.isNotBlank()) {
-                    Text("地区 ${s.countryCode}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline)
+                OutlinedButton(onClick = { vm.loadSurveys() },
+                    modifier = Modifier.height(34.dp)) { Text("刷新") }
+            }
+
+            // 质量分
+            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("质量分", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.outline)
+                        Text("${s.qualityScore}",
+                            fontSize = 30.sp, fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    if (s.countryCode.isNotBlank()) {
+                        Text("地区 ${s.countryCode}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline)
+                    }
                 }
             }
-        }
-        Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(10.dp))
 
-        if (s.surveys.isEmpty()) {
-            Text(
-                text = if (s.loading) "加载中…" else s.message.ifEmpty { "暂无可做问卷" },
-                modifier = Modifier.padding(horizontal = 16.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.outline
-            )
-        } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                itemsIndexed(s.surveys) { _, item ->
-                    SurveyCard(item, openUrl)
+            if (s.surveys.isEmpty()) {
+                Text(
+                    text = if (s.loading) "加载中…" else s.message.ifEmpty { "暂无可做问卷" },
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    itemsIndexed(s.surveys) { _, item ->
+                        SurveyCard(item) { url -> activeSurvey = url }
+                    }
+                    item { Spacer(Modifier.height(24.dp)) }
                 }
-                item { Spacer(Modifier.height(24.dp)) }
             }
         }
     }
 }
 
 @Composable
-private fun SurveyCard(item: SurveyItem, openUrl: (String) -> Unit) {
+private fun SurveyCard(item: SurveyItem, onStart: (String) -> Unit) {
     Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween,
@@ -447,7 +460,7 @@ private fun SurveyCard(item: SurveyItem, openUrl: (String) -> Unit) {
             }
             if (item.url.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { openUrl(item.url) },
+                OutlinedButton(onClick = { onStart(item.url) },
                     modifier = Modifier.fillMaxWidth()) { Text("开始问卷") }
             }
         }

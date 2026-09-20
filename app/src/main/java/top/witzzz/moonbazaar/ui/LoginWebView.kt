@@ -11,6 +11,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebViewDatabase
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
@@ -37,13 +38,24 @@ fun WebLoginScreen(
 ) {
     var loading by remember { mutableStateOf(true) }
     var captured by remember { mutableStateOf(false) }  // block after we got the token
+    var shownUrl by remember { mutableStateOf(startUrl) }
+    var webRef by remember { mutableStateOf<WebView?>(null) }
 
-    Box(Modifier.fillMaxSize()) {
-        if (loading) {
-            CircularProgressIndicator(Modifier.align(Alignment.Center),
-                color = Color(0xFF6650a4))
-        }
-        AndroidView(
+    Column(Modifier.fillMaxSize()) {
+        // 顶部：退出 / 刷新 / 当前域名 / 加载指示
+        WebViewTopBar(
+            title = Uri.parse(shownUrl).host ?: shownUrl,
+            loading = loading,
+            onRefresh = { webRef?.reload() },
+            onClose = onClose,
+            closeText = "✕ 退出"
+        )
+        Box(Modifier.fillMaxSize()) {
+            if (loading) {
+                CircularProgressIndicator(Modifier.align(Alignment.Center),
+                    color = Color(0xFF6650a4))
+            }
+            AndroidView(
             factory = { ctx ->
                 // 每次打开登录页（含「添加账号」）先清空 WebView 的 Cookie 与浏览器数据，
                 // 避免复用上一个账号的登录态、直接跳过授权。
@@ -60,6 +72,7 @@ fun WebLoginScreen(
                 }
 
                 WebView(ctx).apply {
+                    webRef = this
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -87,11 +100,15 @@ fun WebLoginScreen(
                         }
 
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                            if (url != null) tryFinish(url, view)
+                            if (url != null) {
+                                shownUrl = url
+                                tryFinish(url, view)
+                            }
                             loading = true
                         }
 
                         override fun onPageFinished(view: WebView?, url: String?) {
+                            if (url != null) shownUrl = url
                             loading = false
                         }
 
@@ -122,8 +139,9 @@ fun WebLoginScreen(
                     }
                     loadUrl(startUrl)
                 }
-            },
-            update = { }
-        )
+                },
+                update = { }
+            )
+        }
     }
 }
