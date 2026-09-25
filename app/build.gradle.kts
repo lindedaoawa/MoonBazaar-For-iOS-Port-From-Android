@@ -1,6 +1,33 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+// ============================================================
+// 打包参数（通过 -P 传入，缺省值见下）
+//   -PsignMode=demo|custom|none    默认 none
+//   -PversionCode=210              默认 1
+//   -PversionName=2.1.0            默认 1.0
+// ============================================================
+val signMode: String = providers.gradleProperty("signMode").orNull ?: "none"
+val versionCodeArg: Int? = providers.gradleProperty("versionCode").orNull?.toIntOrNull()
+val versionNameArg: String? = providers.gradleProperty("versionName").orNull
+
+// 自定义签名属性来源：命令行 -P > keystore.properties
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+fun signProp(key: String): String? =
+    providers.gradleProperty(key).orNull ?: keystoreProps.getProperty(key)
+
+fun resolveKeystoreFile(path: String?): File? {
+    if (path.isNullOrBlank()) return null
+    val f = File(path)
+    return if (f.isAbsolute) f else rootProject.file(path)
 }
 
 android {
@@ -13,19 +40,78 @@ android {
         applicationId = "top.witzzz.moonbazaar"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = versionCodeArg ?: 1
+        versionName = versionNameArg ?: "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // ============================================================
+    // 多 ABI 分包
+    // ============================================================
+    flavorDimensions += "abi"
+
+    productFlavors {
+        create("arm_all") {
+            dimension = "abi"
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        }
+        create("arm64") {
+            dimension = "abi"
+            ndk { abiFilters += listOf("arm64-v8a") }
+        }
+        create("arm32") {
+            dimension = "abi"
+            ndk { abiFilters += listOf("armeabi-v7a") }
+        }
+        create("x8664") {
+            dimension = "abi"
+            ndk { abiFilters += listOf("x86_64") }
+        }
+    }
+
+    // ============================================================
+    // 签名配置
+    //   demo   : signature/example.jks（演示，硬编码）
+    //   custom : keystore.properties 或 -P 参数
+    //   none   : 不签名（产出 *-unsigned.apk）
+    // ============================================================
+    signingConfigs {
+        create("demo") {
+            storeFile = rootProject.file("signature/example.jks")
+            storePassword = "example@123."
+            keyAlias = "example"
+            keyPassword = "examp1e"
+        }
+
+        if (signMode == "custom") {
+            create("custom") {
+                val sf = resolveKeystoreFile(signProp("storeFile"))
+                    ?: throw GradleException(
+                        "signMode=custom 但未找到签名文件！\n" +
+                                "请配置 keystore.properties 或使用 -PstoreFile= 参数"
+                    )
+                storeFile = sf
+                storePassword = signProp("storePassword") ?: ""
+                keyAlias = signProp("keyAlias") ?: ""
+                keyPassword = signProp("keyPassword") ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = when (signMode) {
+                "demo"   -> signingConfigs.getByName("demo")
+                "custom" -> signingConfigs.getByName("custom")
+                else     -> null
+            }
             optimization {
                 enable = false
             }
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -70,4 +156,55 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+}
+// ============================================================
+// 打包产物收集
+//   把所有 APK / AAB 统一复制到 <项目根>/build/dist
+//   用法：gradlew collectDist
+//   或： 任意 assembleXxx / bundleXxx 完成后自动触发
+// ============================================================
+val distDir = rootProject.layout.buildDirectory.dir("dist")
+
+tasks.register("collectDist") {
+    group = "build"
+    description = "收集所有 APK / AAB 到 <项目根>/build/dist"
+
+    doLast {
+        val dst = distDir.get().asFile
+        dst.mkdirs()
+
+        val outputsRoot = layout.buildDirectory.dir("outputs").get().asFile
+        if (!outputsRoot.exists()) {
+            logger.warn("[collectDist] 未找到 outputs 目录: ${outputsRoot.absolutePath}")
+            logger.warn("[collectDist] 请先执行一次 assembleXxx / bundleXxx")
+            return@doLast
+        }
+
+        val collected = mutableListOf<String>()
+        outputsRoot.walkTopDown()
+            .filter { it.isFile && it.extension.lowercase() in listOf("apk", "aab") }
+            .forEach { src ->
+                val dest = File(dst, src.name)
+                src.copyTo(dest, overwrite = true)
+                val sizeKb = src.length() / 1024
+                collected += "${src.name}  (${sizeKb} KB)"
+            }
+
+        if (collected.isEmpty()) {
+            logger.warn("[collectDist] outputs 目录下没有 APK / AAB")
+        } else {
+            logger.lifecycle("[collectDist] 已收集 ${collected.size} 个产物 → ${dst.absolutePath}")
+            collected.forEach { logger.lifecycle("  • $it") }
+        }
+    }
+}
+
+// assemble*/bundle* 完成后自动触发收集
+afterEvaluate {
+    tasks.matching {
+        (it.name.startsWith("assemble") && it.name != "assemble") ||
+                (it.name.startsWith("bundle")   && it.name != "bundle")
+    }.configureEach {
+        finalizedBy("collectDist")
+    }
 }
