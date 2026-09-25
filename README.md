@@ -81,7 +81,7 @@ MoonBazaar 不提供密码登录 API，登录必须发生在官方页面。本�
 |---|---|
 | 语言 | Swift 5（`SWIFT_VERSION = 5.0`） |
 | UI | SwiftUI（iOS 原生，无第三方 UI 库） |
-| 最低系统 | **iOS 16.0**，支持 iPhone / iPad（`TARGETED_DEVICE_FAMILY = 1,2`） |
+| 最低系统 | **iOS 15.0**，支持 iPhone / iPad（`TARGETED_DEVICE_FAMILY = 1,2`） |
 | 工程 | Xcode 16（`objectVersion 77`，使用 File System Synchronized Groups，新增 `.swift` 文件无需手动加进工程） |
 | 网络 | `URLSession`（`async/await`） |
 | WebView | `WKWebView` + `WKContentRuleList` + 注入脚本 |
@@ -173,7 +173,9 @@ mkdir -p dist/Payload && cp -R build/Build/Products/Release-iphoneos/MoonBazaar.
 (cd dist && zip -qry MoonBazaar-v<版本>-<构建号>-unsigned.ipa Payload)
 ```
 
-**产物为未签名 IPA**，需要 TrollStore / AltStore / Sideloadly 等工具重签后安装（要求 iOS ≥ 16.0、arm64 设备）。
+**产物为未签名 IPA**，需要 TrollStore / AltStore / Sideloadly 等工具重签后安装（要求 iOS ≥ 15.0、arm64 设备）。
+
+> ⚠️ **不要把 `IPHONEOS_DEPLOYMENT_TARGET` 调回 16.0 以上。** Xcode 16 的 iOS 18 SDK 会把 Foundation 的 Swift 符号（`URL` / `Data` / `Date` / `JSONDecoder` / `URLRequest` 的访问器等共 76 个）绑定到 `Foundation.framework` —— 那是 iOS 18 起 swift-foundation 才提供的实现。目标为 15.0 时链接器会改为链接 `/usr/lib/swift/libswiftFoundation.dylib`，这些符号在 iOS 15 上才解析得到；调回 16.0 会让 IPA 在 iOS 15 设备上以 dyld `Symbol missing` 启动即闪退。
 
 **可选：产出已签名 IPA。** 在仓库 `Settings → Secrets and variables → Actions` 配置以下 Secrets，`ios-release.yml` 会自动切换到“归档 + 导出”流程：
 
