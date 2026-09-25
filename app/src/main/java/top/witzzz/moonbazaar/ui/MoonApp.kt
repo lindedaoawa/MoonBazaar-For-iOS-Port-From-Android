@@ -377,7 +377,8 @@ private fun SurveysScreen(vm: MainViewModel, modifier: Modifier) {
             onClose = {
                 activeSurvey = null
                 vm.loadSurveys()
-            }
+            },
+            modifier = modifier
         )
     } else {
         Column(modifier.fillMaxSize()) {

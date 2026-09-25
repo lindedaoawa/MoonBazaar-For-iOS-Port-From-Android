@@ -75,7 +75,8 @@ data class WithdrawProduct(
 
 // 问卷一条
 data class SurveyItem(
-    val provider: String = "",
+    val provider: String = "",      // 展示用：提供商全名（provider_full，如 "CPX Research"）
+    val providerKey: String = "",   // 原始 provider 字段（如 "cpx"），用于 provider_status 过滤
     val surveyId: String = "",
     val reward: String = "0",   // 单位 GC
     val loi: String = "",       // 问卷时长
@@ -471,13 +472,17 @@ class MainViewModel : ViewModel() {
             if (arr != null) {
                 for (i in 0 until arr.length()) {
                     val j = arr.optJSONObject(i) ?: continue
-                    val provider = j.optString("provider")
-                    if (!providerEnabled(provider)) continue
+                    // 过滤用原始 key（provider_status 里的键，如 "cpx"）
+                    val providerKey = j.optString("provider")
+                    if (!providerEnabled(providerKey)) continue
+                    // 展示用全名：provider_full（如 "CPX Research"），缺失时回退原始值
+                    val providerName = j.optString("provider_full").ifBlank { providerKey }
                     // 真实字段：id / payout / link；同时对示例里的旧键名做兜底
                     val payout = if (j.has("payout")) j.opt("payout") else j.opt("reward")
                     list.add(
                         SurveyItem(
-                            provider = provider,
+                            provider = providerName,
+                            providerKey = providerKey,
                             surveyId = if (j.has("id")) j.opt("id")?.toString().orEmpty()
                             else j.opt("survey_id")?.toString().orEmpty(),
                             reward = numberText(payout).ifEmpty { "0" },
