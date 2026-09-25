@@ -1,0 +1,16 @@
+# Xcode 构建产物
+build/
+build-sim/
+build-archive/
+dist/
+DerivedData/
+*.xcarchive
+
+# Xcode 用户数据
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# macOS
+.DS_Store

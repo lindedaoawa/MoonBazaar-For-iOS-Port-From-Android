@@ -1,0 +1,121 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+# 同一分支只保留最新一次构建
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SCHEME: MoonBazaar
+  PROJECT: MoonBazaar.xcodeproj
+  PRODUCT: MoonBazaar.app
+
+jobs:
+  ipa:
+    name: Build unsigned IPA
+    # 工程使用 Xcode 16 的 objectVersion 77 + PBXFileSystemSynchronizedRootGroup，
+    # 必须跑在自带 Xcode 16 的镜像上（macos-14 只有 Xcode 15，无法解析工程）。
+    runs-on: macos-15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          swift --version
+
+      - name: Build (Release, unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package IPA
+        id: package
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/${PRODUCT}"
+          if [ ! -d "$APP" ]; then
+            echo "未找到构建产物: $APP"
+            find build/Build/Products -maxdepth 2 -type d || true
+            exit 1
+          fi
+
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist")
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist")
+          NAME="MoonBazaar-v${VERSION}-${BUILD}-unsigned"
+
+          mkdir -p dist/Payload
+          rm -rf dist/Payload/* dist/*.ipa
+          cp -R "$APP" dist/Payload/
+          # 未签名 IPA 去掉扩展属性 / 代码签名残留，避免解压时出现 __MACOSX 垃圾
+          xattr -cr dist/Payload
+          ( cd dist && zip -qry "${NAME}.ipa" Payload && rm -rf Payload )
+
+          ls -lh dist/
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonBazaar-ipa
+          path: ios/dist/*.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+  simulator:
+    name: Build for Simulator (smoke test)
+    runs-on: macos-15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ios
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build (Debug, simulator)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            build
