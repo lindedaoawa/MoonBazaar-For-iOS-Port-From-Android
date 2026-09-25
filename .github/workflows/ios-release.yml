@@ -1,0 +1,212 @@
+name: iOS Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'ios-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要创建/更新的 Release tag（留空则只上传 artifact，不建 Release）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  SCHEME: MoonBazaar
+  PROJECT: MoonBazaar.xcodeproj
+  PRODUCT: MoonBazaar.app
+
+jobs:
+  release:
+    name: Build IPA and publish
+    # 工程使用 Xcode 16 的 objectVersion 77 + PBXFileSystemSynchronizedRootGroup，
+    # 必须跑在自带 Xcode 16 的镜像上。
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: ios
+    env:
+      # 仅在配置了签名 Secrets 时才走签名分支（空字符串 => 产出未签名 IPA）
+      CERT_P12: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcode-select -p
+
+      # ---------------------------------------------------------------
+      # 可选：配置以下 Secrets 即可产出已签名 IPA，否则产出未签名 IPA
+      #   BUILD_CERTIFICATE_BASE64  .p12 的 base64
+      #   P12_PASSWORD              .p12 密码
+      #   PROVISIONING_PROFILE_BASE64 mobileprovision 的 base64
+      #   KEYCHAIN_PASSWORD         临时钥匙串密码（任意值）
+      #   DEVELOPMENT_TEAM          Apple Team ID
+      # ---------------------------------------------------------------
+      - name: Import signing assets
+        if: env.CERT_P12 != ''
+        env:
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          PROFILE: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+
+          printf '%s' "$CERT_P12" | base64 --decode > "$CERT_PATH"
+          printf '%s' "$PROFILE"  | base64 --decode > "$PROFILE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Archive (signed)
+        if: env.CERT_P12 != ''
+        env:
+          TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            -archivePath build/MoonBazaar.xcarchive \
+            -allowProvisioningUpdates \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            archive
+
+      - name: Build (Release, unsigned)
+        if: env.CERT_P12 == ''
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package signed IPA
+        if: env.CERT_P12 != ''
+        env:
+          TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist build
+          printf '%s\n' \
+            '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0">' \
+            '<dict>' \
+            '  <key>method</key>' \
+            '  <string>development</string>' \
+            '  <key>teamID</key>' \
+            "  <string>${TEAM_ID}</string>" \
+            '  <key>signingStyle</key>' \
+            '  <string>automatic</string>' \
+            '  <key>stripSwiftSymbols</key>' \
+            '  <true/>' \
+            '  <key>compileBitcode</key>' \
+            '  <false/>' \
+            '</dict>' \
+            '</plist>' > build/ExportOptions.plist
+
+          xcodebuild -exportArchive \
+            -archivePath build/MoonBazaar.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist build/ExportOptions.plist \
+            -allowProvisioningUpdates
+
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" build/MoonBazaar.xcarchive/Info.plist)
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" build/MoonBazaar.xcarchive/Info.plist)
+          mv "build/export/${SCHEME}.ipa" "dist/MoonBazaar-v${VERSION}-${BUILD}.ipa"
+
+      - name: Package unsigned IPA
+        if: env.CERT_P12 == ''
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/${PRODUCT}"
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist")
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist")
+          mkdir -p dist/Payload
+          rm -rf dist/Payload/* dist/*.ipa
+          cp -R "$APP" dist/Payload/
+          xattr -cr dist/Payload
+          ( cd dist && zip -qry "MoonBazaar-v${VERSION}-${BUILD}-unsigned.ipa" Payload && rm -rf Payload )
+
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" 2>/dev/null || true
+
+      - name: Read artifact info
+        id: ver
+        run: |
+          set -euo pipefail
+          IPA=$(ls dist/*.ipa | head -n1)
+          echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$IPA" .ipa)" >> "$GITHUB_OUTPUT"
+          ls -lh dist/
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MoonBazaar-ipa-release
+          path: ios/dist/*.ipa
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Determine release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub Release
+        if: steps.tag.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          IPA: ${{ steps.ver.outputs.ipa }}
+          ARTIFACT: ${{ steps.ver.outputs.name }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/notes.md" <<'EOF'
+          MoonBazaar iOS 客户端构建产物。
+
+          - 安装要求：iOS >= 16.0，arm64 设备
+          - 未签名 IPA 需使用 TrollStore / AltStore / Sideloadly 等工具重签后安装
+          - 签名 IPA 需设备 UDID 已加入对应 Provisioning Profile
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$IPA" --clobber
+          else
+            gh release create "$TAG" "$IPA" --title "MoonBazaar iOS $TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
