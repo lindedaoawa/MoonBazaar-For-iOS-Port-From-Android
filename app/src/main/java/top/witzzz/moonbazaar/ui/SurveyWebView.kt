@@ -11,6 +11,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -133,13 +134,16 @@ private fun proxyFetch(newUrl: String, request: WebResourceRequest): WebResource
 @Composable
 fun SurveyWebScreen(
     startUrl: String,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var loading by remember { mutableStateOf(true) }
     var shownUrl by remember { mutableStateOf(startUrl) }
     var webRef by remember { mutableStateOf<WebView?>(null) }
 
-    Column(Modifier.fillMaxSize()) {
+    // 注意：必须接收调用方的 modifier（Scaffold 的 innerPadding），
+    // 否则本页自己的标题栏会被 Scaffold 顶栏盖住而"消失"。
+    Column(modifier.fillMaxSize()) {
         // 顶部：返回 / 刷新 / 当前域名 / 加载指示
         WebViewTopBar(
             title = Uri.parse(shownUrl).host ?: shownUrl,
@@ -149,7 +153,8 @@ fun SurveyWebScreen(
         )
 
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            // 占满标题栏以下的剩余空间（不要用 fillMaxSize，否则会超出可视区域）
+            modifier = Modifier.fillMaxWidth().weight(1f),
             factory = { ctx ->
                 WebView(ctx).apply {
                     webRef = this

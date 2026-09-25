@@ -13,6 +13,7 @@ import android.webkit.WebViewDatabase
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,7 +51,8 @@ fun WebLoginScreen(
             onClose = onClose,
             closeText = "✕ 退出"
         )
-        Box(Modifier.fillMaxSize()) {
+        // 占满标题栏以下的剩余空间（不要用 fillMaxSize，否则会超出可视区域）
+        Box(Modifier.fillMaxWidth().weight(1f)) {
             if (loading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center),
                     color = Color(0xFF6650a4))
