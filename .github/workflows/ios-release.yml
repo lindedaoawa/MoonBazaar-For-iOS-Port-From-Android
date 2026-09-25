@@ -43,6 +43,31 @@ jobs:
           xcode-select -p
 
       # ---------------------------------------------------------------
+      # 先确定 tag：发布包名由它决定（tag=ios-v1.0.0 -> MoonBazaar-ios-v1.0.0.ipa）
+      # ---------------------------------------------------------------
+      - name: Determine release tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="$INPUT_TAG"
+          fi
+          if [ -n "$TAG" ]; then
+            IPA_NAME="MoonBazaar-$TAG"
+          else
+            # 手动触发且未填 tag：仅上传 artifact，不建 Release，用工程版本命名
+            MV=$(sed -n 's/.*MARKETING_VERSION = \([^;]*\);.*/\1/p' MoonBazaar.xcodeproj/project.pbxproj | head -n1)
+            IPA_NAME="MoonBazaar-v${MV:-dev}-unsigned"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ipa_name=$IPA_NAME" >> "$GITHUB_OUTPUT"
+          echo "release tag: [$TAG]  ipa: [$IPA_NAME]"
+
+      # ---------------------------------------------------------------
       # 可选：配置以下 Secrets 即可产出已签名 IPA，否则产出未签名 IPA
       #   BUILD_CERTIFICATE_BASE64  .p12 的 base64
       #   P12_PASSWORD              .p12 密码
@@ -113,6 +138,7 @@ jobs:
         if: env.CERT_P12 != ''
         env:
           TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM }}
+          IPA_NAME: ${{ steps.tag.outputs.ipa_name }}
         run: |
           set -euo pipefail
           mkdir -p dist build
@@ -140,22 +166,20 @@ jobs:
             -exportOptionsPlist build/ExportOptions.plist \
             -allowProvisioningUpdates
 
-          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" build/MoonBazaar.xcarchive/Info.plist)
-          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" build/MoonBazaar.xcarchive/Info.plist)
-          mv "build/export/${SCHEME}.ipa" "dist/MoonBazaar-v${VERSION}-${BUILD}.ipa"
+          mv "build/export/${SCHEME}.ipa" "dist/${IPA_NAME}.ipa"
 
       - name: Package unsigned IPA
         if: env.CERT_P12 == ''
+        env:
+          IPA_NAME: ${{ steps.tag.outputs.ipa_name }}
         run: |
           set -euo pipefail
           APP="build/Build/Products/Release-iphoneos/${PRODUCT}"
-          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist")
-          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist")
           mkdir -p dist/Payload
           rm -rf dist/Payload/* dist/*.ipa
           cp -R "$APP" dist/Payload/
           xattr -cr dist/Payload
-          ( cd dist && zip -qry "MoonBazaar-v${VERSION}-${BUILD}-unsigned.ipa" Payload && rm -rf Payload )
+          ( cd dist && zip -qry "${IPA_NAME}.ipa" Payload && rm -rf Payload )
 
       - name: Cleanup keychain
         if: always()
@@ -178,17 +202,6 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Determine release tag
-        id: tag
-        env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Publish GitHub Release
         if: steps.tag.outputs.tag != ''
         env:
@@ -198,15 +211,19 @@ jobs:
           ARTIFACT: ${{ steps.ver.outputs.name }}
         run: |
           set -euo pipefail
-          cat > "$RUNNER_TEMP/notes.md" <<'EOF'
+          if [ -n "$CERT_P12" ]; then
+            KIND="已签名 IPA（development）—— 需设备 UDID 已加入对应 Provisioning Profile"
+          else
+            KIND="未签名 IPA —— 需用 TrollStore / AltStore / Sideloadly 等工具重签后安装"
+          fi
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
           MoonBazaar iOS 客户端构建产物。
 
-          - 安装要求：iOS >= 16.0，arm64 设备
-          - 未签名 IPA 需使用 TrollStore / AltStore / Sideloadly 等工具重签后安装
-          - 签名 IPA 需设备 UDID 已加入对应 Provisioning Profile
+          - 安装要求：iOS >= 15.0，arm64 设备
+          - 包类型：$KIND
           EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$IPA" --clobber
           else
-            gh release create "$TAG" "$IPA" --title "MoonBazaar iOS $TAG" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release create "$TAG" "$IPA" --title "MoonBazaar-$TAG" --notes-file "$RUNNER_TEMP/notes.md"
           fi

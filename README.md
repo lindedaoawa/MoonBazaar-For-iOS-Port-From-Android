@@ -89,7 +89,7 @@ MoonBazaar 不提供密码登录 API，登录必须发生在官方页面。本�
 | 状态管理 | `ObservableObject` / `@Published` + `Combine` |
 | 持久化 | `UserDefaults` |
 | 包名 | `top.witzzz.moonbazaar` |
-| 版本 | `MARKETING_VERSION = 2.1.0` |
+| 版本 | `MARKETING_VERSION = 1.0.0`（`CURRENT_PROJECT_VERSION` 为构建号） |
 
 JSON 解析使用 Foundation 内置的 `JSONSerialization`，未引入额外序列化框架。
 
@@ -189,12 +189,14 @@ mkdir -p dist/Payload && cp -R build/Build/Products/Release-iphoneos/MoonBazaar.
 
 未配置上述 Secrets 时走未签名分支，无需任何证书即可跑通。
 
-发布一个版本：
+发布一个版本（tag 以 `v` 或 `ios-v` 开头均可）：
 
 ```bash
-git tag ios-v2.1.0 && git push origin ios-v2.1.0
+git tag ios-v1.0.0 && git push origin ios-v1.0.0
 # 或在 Actions 页面手动触发 iOS Release 并填写 tag
 ```
+
+推送 tag 会自动构建并创建 GitHub Release，安装包命名为 `MoonBazaar-<tag>.ipa`——tag 为 `ios-v1.0.0` 时即 `MoonBazaar-ios-v1.0.0.ipa`。未配置签名 Secrets 时该包为未签名，需用 TrollStore 等工具重签后安装。
 
 ### 方式二：本地 macOS 打包
 
