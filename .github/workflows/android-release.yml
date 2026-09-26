@@ -4,10 +4,16 @@ on:
   push:
     tags:
       - 'android-v*'
+      - 'Android-*'
+      - 'MoonBazaar-*'
   workflow_dispatch:
     inputs:
       tag:
         description: '要创建/更新的 Release tag（留空则只上传 artifact，不建 Release）'
+        required: false
+        default: ''
+      release_name:
+        description: 'Release 显示名称（留空则按 tag 推导为 MoonBazaar-<tag>）'
         required: false
         default: ''
       flavors:
@@ -46,12 +52,16 @@ jobs:
           sdkmanager --install "platform-tools" "platforms;android-37" "build-tools;36.0.0" >/dev/null || true
 
       # ---------------------------------------------------------------
-      # 确定 tag：发布包名由它决定（tag=android-v1.0.0 -> MoonBazaar-android-v1.0.0-<flavor>.apk）
+      # 确定 tag 与 Release 显示名：
+      #   tag=Android-Legacy-Device-SP        -> MoonBazaar-Android-Legacy-Device-SP
+      #   tag=MoonBazaar-Android-Legacy-...   -> 原样（不重复加前缀）
+      #   tag=android-v1.0.0                  -> MoonBazaar-android-v1.0.0，versionName=1.0.0
       # ---------------------------------------------------------------
       - name: Determine release tag
         id: tag
         env:
           INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_NAME: ${{ github.event.inputs.release_name }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "push" ]; then
@@ -59,15 +69,31 @@ jobs:
           else
             TAG="$INPUT_TAG"
           fi
-          if [ -n "$TAG" ]; then
-            NAME="$TAG"
-            VER="${TAG#android-v}"; VER="${VER#v}"
+
+          # Release 显示名：显式指定 > 由 tag 推导（已带前缀则不再重复）
+          if [ -n "$INPUT_NAME" ]; then
+            NAME="$INPUT_NAME"
+          elif [ -n "$TAG" ]; then
+            case "$TAG" in
+              MoonBazaar-*) NAME="$TAG" ;;
+              *)            NAME="MoonBazaar-$TAG" ;;
+            esac
           else
             # 手动触发且未填 tag：仅上传 artifact，不建 Release
-            NAME="android-dev"
-            VER="$(sed -n 's/^VERSION_NAME=//p' gradle.properties | head -n1)"
-            VER="${VER:-dev}"
+            NAME="MoonBazaar-android-dev"
           fi
+
+          # versionName：tag 形如 android-v1.2.3 / v1.2.3 时取版本号，否则用 gradle.properties
+          VER=""
+          case "$TAG" in
+            android-v[0-9]*) VER="${TAG#android-v}" ;;
+            v[0-9]*)         VER="${TAG#v}" ;;
+          esac
+          if [ -z "$VER" ]; then
+            VER="$(sed -n 's/^VERSION_NAME=//p' gradle.properties | head -n1)"
+            VER="${VER:-1.0.0}"
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
@@ -129,7 +155,7 @@ jobs:
           for apk in build/dist/*.apk; do
             base="$(basename "$apk" .apk)"          # app-arm_all-release
             flavor="${base#app-}"; flavor="${flavor%-release}"; flavor="${flavor%-unsigned}"
-            cp "$apk" "dist/MoonBazaar-${NAME}-${flavor}.apk"
+            cp "$apk" "dist/${NAME}-${flavor}.apk"
           done
           ls -lh dist/
 
@@ -146,6 +172,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.tag.outputs.tag }}
+          NAME: ${{ steps.tag.outputs.name }}
         run: |
           set -euo pipefail
           if [ -n "$KEYSTORE_B64" ]; then
@@ -163,5 +190,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/*.apk --clobber
           else
-            gh release create "$TAG" dist/*.apk --title "MoonBazaar-$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release create "$TAG" dist/*.apk --title "$NAME" --notes-file "$RUNNER_TEMP/notes.md"
           fi
