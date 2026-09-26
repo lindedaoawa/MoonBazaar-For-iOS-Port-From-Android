@@ -283,12 +283,16 @@ WKWebView 没有 `shouldInterceptRequest` 的等价钩子，因此拆成三层�
 
 ## 附录：Android 版
 
-原始 Android 工程保留在 `app/`（Kotlin + Jetpack Compose + Material 3，`minSdk 29` / `targetSdk 37`），构建方式：
+原始 Android 工程保留在 `app/`（Kotlin + Jetpack Compose + Material 3，`minSdk 23` / `targetSdk 37`），构建方式：
 
 ```powershell
 .\gradlew.bat assembleDebug            # 产物：app/build/outputs/apk/debug/app-debug.apk
-.\gradlew.bat :app:assembleDemoArm64Release   # 使用 signature/example.jks 的演示签名包
+.\gradlew.bat :app:assembleArm64Release -PsignMode=demo   # 使用 signature/example.jks 的演示签名包
 ```
+
+> **最低支持版本：Android 6.0（API 23）**。已适配 Android 10 以下的旧设备：`minSdk` 由 29 下调至 23，覆盖 Android 6.0–9（API 23–28），同时兼容更新系统。
+> 低版本适配要点：自适应图标置于 `mipmap-anydpi-v26`（仅 API 26+ 生效），API 23–25 自动回退到 `mipmap-*dpi` 位图；动态取色（`dynamicColor`）仅在 API 31+ 启用，旧设备使用内置配色。
+> 说明：Compose 1.10.x（BOM 2026.02.01）硬性要求 `minSdk ≥ 23`，故无法支持 API 21/22。
 
 打包参数：`-PsignMode=demo|custom|none`、`-PversionCode=`、`-PversionName=`。产物可用 `gradlew collectDist` 统一收集到 `build/dist`。
 

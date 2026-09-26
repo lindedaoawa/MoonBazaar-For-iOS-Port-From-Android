@@ -38,7 +38,7 @@ android {
 
     defaultConfig {
         applicationId = "top.witzzz.moonbazaar"
-        minSdk = 29
+        minSdk = 23
         targetSdk = 37
         versionCode = versionCodeArg ?: 1
         versionName = versionNameArg ?: "1.0"
