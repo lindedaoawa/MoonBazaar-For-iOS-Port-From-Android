@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Show toolchain
         run: |
@@ -195,7 +195,7 @@ jobs:
           ls -lh dist/
 
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: MoonBazaar-ipa-release
           path: ios/dist/*.ipa
