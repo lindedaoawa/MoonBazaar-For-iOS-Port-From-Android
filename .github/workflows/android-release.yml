@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'android-v*'
+      - 'androidlegacy-*'
       - 'Android-*'
       - 'MoonBazaar-*'
   workflow_dispatch:
@@ -75,19 +76,20 @@ jobs:
             NAME="$INPUT_NAME"
           elif [ -n "$TAG" ]; then
             case "$TAG" in
-              MoonBazaar-*) NAME="$TAG" ;;
-              *)            NAME="MoonBazaar-$TAG" ;;
+              MoonBazaar-*|androidlegacy-*) NAME="$TAG" ;;
+              *)                            NAME="MoonBazaar-$TAG" ;;
             esac
           else
             # 手动触发且未填 tag：仅上传 artifact，不建 Release
             NAME="MoonBazaar-android-dev"
           fi
 
-          # versionName：tag 形如 android-v1.2.3 / v1.2.3 时取版本号，否则用 gradle.properties
+          # versionName：tag 形如 android-v1.2.3 / androidlegacy-1.2.3 / v1.2.3 时取版本号，否则用 gradle.properties
           VER=""
           case "$TAG" in
-            android-v[0-9]*) VER="${TAG#android-v}" ;;
-            v[0-9]*)         VER="${TAG#v}" ;;
+            android-v[0-9]*)      VER="${TAG#android-v}" ;;
+            androidlegacy-[0-9]*) VER="${TAG#androidlegacy-}" ;;
+            v[0-9]*)              VER="${TAG#v}" ;;
           esac
           if [ -z "$VER" ]; then
             VER="$(sed -n 's/^VERSION_NAME=//p' gradle.properties | head -n1)"

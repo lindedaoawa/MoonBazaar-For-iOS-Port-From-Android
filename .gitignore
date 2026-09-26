@@ -16,4 +16,5 @@ local.properties
 *.env
 /.git
 /signature/MoonbazaarRelease.jks
+/signature/androidlegacy.jks
 keystore.properties
